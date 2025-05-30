@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="/dashboard/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Panel de estadísticas -->
+        <div class="panel stats">
+            <h2>Estadísticas</h2>
+            <div class="chart-container">
+                <canvas id="stats-chart"></canvas>
+            </div>
+
+            <!-- Formulario debajo de la gráfica -->
+            <div class="form">
+                <h2>Agregar Mensaje</h2>
+                <form id="message-form">
+                    <label for="numero">Número:</label><br>
+                    <input type="text" id="numero" name="numero" required><br><br>
+                    <label for="mensaje">Mensaje:</label><br>
+                    <textarea id="mensaje" name="mensaje" required></textarea><br><br>
+                    <button type="submit">Enviar</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Panel del historial -->
+        <div class="panel messages">
+            <h2>Mensajes</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Número</th>
+                        <th>Tipo</th>
+                        <th>Contenido</th>
+                    </tr>
+                </thead>
+                <tbody id="messages-list">
+                    <!-- Mensajes dinámicos -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Cargar estadísticas
+        async function loadStats() {
+            const response = await fetch('/api/historial');
+            const data = await response.json();
+            const stats = {};
+
+            data.data.forEach(msg => {
+                stats[msg.tipo] = (stats[msg.tipo] || 0) + 1;
+            });
+
+            const statsList = document.getElementById('stats-list');
+            statsList.innerHTML = '';
+            for (const [tipo, count] of Object.entries(stats)) {
+                const li = document.createElement('li');
+                li.textContent = `${tipo}: ${count}`;
+                statsList.appendChild(li);
+            }
+        }
+
+        // Cargar mensajes
+        async function loadMessages() {
+            const response = await fetch('/api/historial');
+            const data = await response.json();
+
+            const messagesList = document.getElementById('messages-list');
+            messagesList.innerHTML = '';
+
+            // Ordenar los mensajes por fecha, mostrando primero el más reciente
+            const sortedMessages = data.data.sort((a, b) => {
+                const dateA = parseDate(a.fecha);
+                const dateB = parseDate(b.fecha);
+                return dateB - dateA;
+            });
+
+            sortedMessages.forEach(msg => {
+                const row = document.createElement('tr');
+
+                // Convertir la fecha al formato local
+                let localDate;
+                try {
+                    const parsedDate = parseDate(msg.fecha);
+                    localDate = parsedDate ? parsedDate.toLocaleString() : 'Fecha inválida';
+                } catch (error) {
+                    localDate = 'Fecha inválida';
+                }
+
+                row.innerHTML = `
+                    <td>${localDate}</td>
+                    <td>${msg.numero}</td>
+                    <td>${msg.tipo}</td>
+                    <td>${msg.contenido || 'Sin contenido'}</td>
+                `;
+                messagesList.appendChild(row);
+            });
+        }
+
+        // Enviar mensaje
+        document.getElementById('message-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const numero = document.getElementById('numero').value;
+            const mensaje = document.getElementById('mensaje').value;
+
+            const response = await fetch('/api/enviar', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ numero, mensaje })
+            });
+
+            if (response.ok) {
+                alert('Mensaje enviado con éxito');
+                loadMessages();
+            } else {
+                alert('Error al enviar el mensaje');
+            }
+        });
+
+        // Función para actualizar el gráfico de estadísticas
+        async function updateStatsChart() {
+            const response = await fetch('/api/historial');
+            const data = await response.json();
+            const stats = {};
+
+            data.data.forEach(msg => {
+                stats[msg.tipo] = (stats[msg.tipo] || 0) + 1;
+            });
+
+            const ctx = document.getElementById('stats-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(stats),
+                    datasets: [{
+                        label: 'Cantidad de mensajes',
+                        data: Object.values(stats),
+                        backgroundColor: ['#ff9800', '#4caf50', '#2196f3', '#f44336'],
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                generateLabels: function(chart) {
+                                    const originalLabels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                                    return originalLabels.map(label => {
+                                        if (label.text === 'Cantidad de mensajes') {
+                                            label.fillStyle = '#9c27b0'; // Cambiar el color del cuadro a púrpura
+                                        }
+                                        return label;
+                                    });
+                                }
+                            },
+                            onHover: function(event, legendItem, legend) {
+                                if (legendItem && legendItem.text === 'Cantidad de mensajes') {
+                                    const totalMessages = legend.chart.data.datasets[0].data.reduce((sum, value) => sum + value, 0);
+                                    const tooltip = document.createElement('div');
+                                    tooltip.id = 'legend-tooltip';
+                                    tooltip.style.position = 'absolute';
+                                    tooltip.style.backgroundColor = 'rgba(50, 50, 50, 0.9)';
+                                    tooltip.style.color = 'white';
+                                    tooltip.style.padding = '8px';
+                                    tooltip.style.borderRadius = '5px';
+                                    tooltip.style.pointerEvents = 'none';
+                                    tooltip.style.fontSize = '14px';
+                                    tooltip.style.fontFamily = 'Roboto, sans-serif';
+                                    tooltip.style.border = '1px solid #9c27b0';
+                                    tooltip.style.zIndex = '1000';
+                                    tooltip.innerText = `Total acumulado: ${totalMessages}`;
+                                    document.body.appendChild(tooltip);
+
+                                    const moveTooltip = (e) => {
+                                        tooltip.style.left = `${e.pageX + 10}px`;
+                                        tooltip.style.top = `${e.pageY + 10}px`;
+                                    };
+
+                                    const removeTooltip = () => {
+                                        document.body.removeChild(tooltip);
+                                        event.native.target.removeEventListener('mousemove', moveTooltip);
+                                        event.native.target.removeEventListener('mouseleave', removeTooltip);
+                                    };
+
+                                    event.native.target.addEventListener('mousemove', moveTooltip);
+                                    event.native.target.addEventListener('mouseleave', removeTooltip);
+                                }
+                            }
+                        },
+                    },
+                }
+            });
+        }
+
+        // Función para manejar diferentes formatos de fecha
+        function parseDate(dateString) {
+            // Intentar analizar la fecha directamente
+            let parsedDate = new Date(dateString);
+            if (!isNaN(parsedDate)) {
+                return parsedDate;
+            }
+
+            // Intentar con formato alternativo (reemplazar guiones por barras)
+            parsedDate = new Date(dateString.replace(/-/g, '/'));
+            if (!isNaN(parsedDate)) {
+                return parsedDate;
+            }
+
+            // Intentar con formato personalizado (día/mes/año, hora:minuto:segundo)
+            const parts = dateString.split(/[\/\s,]+/);
+            if (parts.length >= 3) {
+                const day = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1; // Meses en JavaScript son 0-indexados
+                const year = parseInt(parts[2], 10);
+                const time = parts[3] || '00:00:00';
+                parsedDate = new Date(year, month, day, ...time.split(':').map(Number));
+                if (!isNaN(parsedDate)) {
+                    return parsedDate;
+                }
+            }
+
+            // Si todo falla, devolver null
+            return null;
+        }
+
+        // Inicializar
+        loadStats();
+        loadMessages();
+        updateStatsChart();
+    </script>
+</body>
+</html>
